@@ -107,35 +107,6 @@ def non_max_suppression(img, theta, debug = False):
     angle[angle < 0] += 180
     angle = angle.astype(np.float32)
 
-    # for i in range(1,M-1):
-    #     for j in range(1,N-1):
-    #         try:
-    #             q = 255
-    #             r = 255
-
-    #            #angle 0
-    #             if (0 <= angle[i,j] < 22.5) or (157.5 <= angle[i,j] <= 180):
-    #                 q = img[i, j+1]
-    #                 r = img[i, j-1]
-    #             #angle 45
-    #             elif (22.5 <= angle[i,j] < 67.5):
-    #                 q = img[i+1, j-1]
-    #                 r = img[i-1, j+1]
-    #             #angle 90
-    #             elif (67.5 <= angle[i,j] < 112.5):
-    #                 q = img[i+1, j]
-    #                 r = img[i-1, j]
-    #             #angle 135
-    #             elif (112.5 <= angle[i,j] < 157.5):
-    #                 q = img[i-1, j-1]
-    #                 r = img[i+1, j+1]
-
-    #             if (img[i,j] >= q) and (img[i,j] >= r):
-    #                 Z[i,j] = img[i,j]
-    #             else:
-    #                 Z[i,j] = 0
-    #         except IndexError as e:
-    #             pass
 
     angle[(0 <= angle) * (angle< 22.5)] = 0
     angle[(157.5 <= angle) * (angle < 180)] = 0
@@ -247,23 +218,22 @@ def hysteresis(strong_edge, weak_edge):
     start = time.time()
 
     M, N = strong_edge.shape
-    weak = 0
-    strong = strong_edge
+
+    strong_edge[strong_edge > 0] = 255
 
     for i in range(1, M-1):
         for j in range(1, N-1):
-            if (img[i,j] == weak):
+            if weak_edge[i,j] > 0:
                 try:
-                    if ((img[i+1, j-1] == strong) or (img[i+1, j] == strong) or (img[i+1, j+1] == strong)
-                        or (img[i, j-1] == strong) or (img[i, j+1] == strong)
-                        or (img[i-1, j-1] == strong) or (img[i-1, j] == strong) or (img[i-1, j+1] == strong)):
-                        img[i, j] = strong
-                    else:
-                        img[i, j] = 0
+                    if ((strong_edge[i+1, j-1] > 0) or (strong_edge[i+1, j] > 0) or (strong_edge[i+1, j+1] > 0)
+                        or (strong_edge[i, j-1] > 0) or (strong_edge[i, j+1] > 0)
+                        or (strong_edge[i-1, j-1] > 0) or (strong_edge[i-1, j] > 0) or (strong_edge[i-1, j+1] > 0)):
+                        strong_edge[i, j] = 255
+
                 except IndexError as e:
                     pass
     print(f'end of {sys._getframe().f_code.co_name}, costs {round(time.time()-start, 2)} s')
-    return strong
+    return strong_edge
     
 def delete_short_line(strong_edge, min_cnt):
     '''
@@ -507,7 +477,8 @@ def main(args):
     mask_name.append('weakEdge')     
     mask_name.append('strongEdge')     
 
-    canny_edge = track_edge(strong_edge, weak_edge)
+    # canny_edge = track_edge(strong_edge, weak_edge)
+    canny_edge = hysteresis(strong_edge, weak_edge)
     res.append(canny_edge.copy())                                 
     # imageio.imwrite('cannynewout.jpg', strong_edge)
     if output_dir:
