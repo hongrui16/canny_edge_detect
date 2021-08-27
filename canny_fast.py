@@ -15,6 +15,7 @@ from scipy import ndimage
 from scipy.ndimage.filters import convolve
 from scipy.special import softmax
 import time
+from time import gmtime, strftime
 
 def fwrite(txt_filepath, a_list):
     textfile = open(txt_filepath, "w")
@@ -22,7 +23,28 @@ def fwrite(txt_filepath, a_list):
         textfile.write(str(element) + "\n")
     textfile.close()
 
-def plot_and_save_fun(res,  mask_name = None, out_img_filepath = None):
+
+def put_text_on_img(img, text):
+    height, width = img.shape
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    # org
+    bottom_left = (height, 0)
+      
+    # fontScale
+    fontScale = 1
+       
+    # Blue color in BGR
+    color = (255, 0, 0)
+      
+    # Line thickness of 2 px
+    thickness = 1
+       
+    # Using cv2.putText() method
+    img = cv2.putText(img, text, bottom_left, font, 
+                       fontScale, color, thickness, cv2.LINE_AA)
+    return img
+
+def plot_and_save_func(res,  mask_name = None, out_img_filepath = None, text_str = None):
     print(f'call {sys._getframe().f_code.co_name}')
 
     if len(res) <= 4:
@@ -33,13 +55,23 @@ def plot_and_save_fun(res,  mask_name = None, out_img_filepath = None):
         col = 4
     
     for i in range(len(res)):
+        img = res[i].astype(np.uint8)
+        if text_str:
+            img = put_text_on_img(img, text_str)
         if i == 0:
-            plt.subplot(row, col, i+1), plt.imshow(res[i].astype(np.uint8)), plt.title('ori'), plt.xticks([]), plt.yticks([])
+            ax = plt.subplot(row, col, i+1), plt.imshow(img), plt.title('ori'), plt.xticks([]), plt.yticks([])
+            if text_str:
+                # ax.text(2.0, 9.5, text_str, fontsize=10)
+                ax.text(.05, .95, text_str, color = 'red', transform=ax.transAxes, ha="left", va="top")
         else:
             if mask_name:
-                plt.subplot(row, col, i+1), plt.imshow(res[i].astype(np.uint8)), plt.title(mask_name[i]), plt.xticks([]), plt.yticks([])
+                ax = plt.subplot(row, col, i+1), plt.imshow(img), plt.title(mask_name[i]), plt.xticks([]), plt.yticks([])
             else:    
-                plt.subplot(row, col, i+1), plt.imshow(res[i].astype(np.uint8)), plt.title(f'res_{i}'), plt.xticks([]), plt.yticks([])
+                ax = plt.subplot(row, col, i+1), plt.imshow(img), plt.title(f'res_{i}'), plt.xticks([]), plt.yticks([])
+            if text_str:
+                # ax.text(2.0, 9.5, text_str, fontsize=10)
+                ax.text(.05, .95, text_str, color = 'red', transform=ax.transAxes, ha="left", va="top")
+
         if res[i].ndim == 2:
             plt.gray()
     plt.subplots_adjust(wspace=0)
@@ -49,6 +81,8 @@ def plot_and_save_fun(res,  mask_name = None, out_img_filepath = None):
         figure.set_size_inches(16, 9)
         plt.savefig(out_img_filepath, dpi=900, bbox_inches='tight')
     plt.show()
+    # time.sleep(3)
+    plt.close()
 
 def gaussian_filter_gray(gray, sigma = 2.2):
     print(f'call {sys._getframe().f_code.co_name}')
@@ -206,6 +240,30 @@ def track_edge(strong_edge, weak_edge):
     print(f'end of {sys._getframe().f_code.co_name}, costs {round(time.time()-start, 2)} s')
     return strong_edge
 
+def fast_track_edge(strong_edge, weak_edge):
+    '''
+    input:
+        strong_edge: narray, high threshold ~ 255
+        weak_edge: narray, low threshold ~ high threshold
+    output:
+        strong_edge: narray, 0, 255
+    '''
+    print(f'call {sys._getframe().f_code.co_name}')
+    start = time.time()
+    temp_edge = strong_edge.copy()
+    temp_edge[temp_edge > 0] = 1
+    kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]], np.float32)
+
+    temp_edge = ndimage.filters.convolve(temp_edge, kernel)
+
+    strong_edge[(temp_edge>0)*(weak_edge>0)] = 1
+    strong_edge[strong_edge > 0] = 255
+
+    print(f'end of {sys._getframe().f_code.co_name}, costs {round(time.time()-start, 2)} s')
+    return strong_edge
+
+
+
 def hysteresis(strong_edge, weak_edge):
     '''
     input:
@@ -281,7 +339,7 @@ def delete_short_line(strong_edge, min_cnt):
     print(f'end of {sys._getframe().f_code.co_name}, costs {round(time.time()-start, 2)} s')
     return strong_edge
 
-def delete_free_form_curve_by_std(edge, theta, avg_angle_limit = 10, std_angle_thres = 20):
+def delete_free_form_curve_by_std(edge, theta, avg_angle_limit = 10, angle_std_thres = 20):
     '''
     input:
         edge: narray, 0, 255
@@ -290,6 +348,8 @@ def delete_free_form_curve_by_std(edge, theta, avg_angle_limit = 10, std_angle_t
         edge: narray, 0, 255
     '''
     print(f'call {sys._getframe().f_code.co_name}')
+    func_name = f'{sys._getframe().f_code.co_name}'
+
     start = time.time()
 
     angle = theta.copy() * 180. / np.pi
@@ -313,13 +373,13 @@ def delete_free_form_curve_by_std(edge, theta, avg_angle_limit = 10, std_angle_t
                 visited_coors = np.full((height, width), False, dtype=bool)
                 traverse(i, j)
                 # avg_angle = np.mean(angle[visited_coors])
-                std_angle = np.std(angle[visited_coors])
-                if std_angle > std_angle_thres:
+                angle_std = np.std(angle[visited_coors])
+                if angle_std > angle_std_thres:
                     edge[visited_coors] = 0
             
 
     print(f'end of {sys._getframe().f_code.co_name}, costs {round(time.time()-start, 2)} s')
-    return edge
+    return edge, func_name
 
 def delete_free_form_curve_by_entropy(edge, theta, entropy_thres = 0.008):
     '''
@@ -330,6 +390,8 @@ def delete_free_form_curve_by_entropy(edge, theta, entropy_thres = 0.008):
         edge: narray, 0, 255
     '''
     print(f'call {sys._getframe().f_code.co_name}')
+    func_name = f'{sys._getframe().f_code.co_name}'
+
     start = time.time()
 
 
@@ -391,7 +453,9 @@ def delete_free_form_curve_by_entropy(edge, theta, entropy_thres = 0.008):
     fwrite(entropy_logfile, entropy_lists)
 
     print(f'end of {sys._getframe().f_code.co_name}, costs {round(time.time()-start, 2)} s')
-    return edge
+    return edge, func_name
+
+
 
 def open_alg_fun():
     res  = []
@@ -420,7 +484,9 @@ def open_alg_fun():
     dst = cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
     res.append(dst.copy())   
     mask_name.append('res') 
-    plot_and_save_fun(res, mask_name)#, out_img_filepath)
+    plot_and_save_func(res, mask_name)#, out_img_filepath)
+
+
 
 def main(args):
     img_filepath = args.img_filepath
@@ -429,8 +495,19 @@ def main(args):
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+
     debug = True
+    save_dist = False
+
+    ##parameters
     sigma = 2.2
+    # sigma = 5
+    angle_std_thres = 70
+    entropy_thres = 0.008
+    
+    plot_text = f'sigma:{sigma};std_thres{angle_std_thres};entropy_thres:{entropy_thres}'
+    print(type(plot_text))
+
     res  = []
     mask_name = []
     # f = 'Lenna.png'
@@ -444,7 +521,7 @@ def main(args):
 
     img = np.array(img, dtype = np.uint8)
     res.append(img.copy())   
-    if output_dir:
+    if output_dir and save_dist:
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_ori.jpg'), img)
     mask_name.append('ori')     
 
@@ -453,7 +530,7 @@ def main(args):
     sobel_grad, sobel_theta = sobel_filters(img_blur)
     res.append(sobel_grad.copy())                                 
     res.append(sobel_theta.copy())                                 
-    if output_dir:
+    if output_dir and save_dist:
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_grad.jpg'), sobel_grad)
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_angle.jpg'), sobel_theta)
     mask_name.append('grad')     
@@ -462,7 +539,7 @@ def main(args):
 
     nms_grad = non_max_suppression(sobel_grad, sobel_theta.copy(), debug)
     res.append(nms_grad.copy())                                 
-    if output_dir:
+    if output_dir and save_dist:
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_nmsGrad.jpg'), nms_grad)
     mask_name.append('nmsGrad')     
 
@@ -471,51 +548,67 @@ def main(args):
     strong_edge, weak_edge = double_threshold(nms_grad)
     res.append(weak_edge.copy())                                 
     res.append(strong_edge.copy())                                 
-    if output_dir:
+    if output_dir and save_dist:
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_weakEdge.jpg'), weak_edge)
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_strongEdge.jpg'), strong_edge)
     mask_name.append('weakEdge')     
     mask_name.append('strongEdge')     
 
+    canny_edge = fast_track_edge(strong_edge, weak_edge)
     # canny_edge = track_edge(strong_edge, weak_edge)
-    canny_edge = hysteresis(strong_edge, weak_edge)
+    # canny_edge = hysteresis(strong_edge, weak_edge)
     res.append(canny_edge.copy())                                 
     # imageio.imwrite('cannynewout.jpg', strong_edge)
-    if output_dir:
+    if output_dir and save_dist:
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_cannyEdge.jpg'), canny_edge)
     mask_name.append('cannyEdge')     
     
 
     edge_filtered_1st = delete_short_line(canny_edge.copy(), 100)
     res.append(edge_filtered_1st.copy())                                 
-    if output_dir:
+    if output_dir and save_dist:
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_edgeFiltered_1st.jpg'), edge_filtered_1st)
     mask_name.append('edgeFiltered_1st')   
 
     edge_minus_1st = np.subtract(canny_edge.copy(), edge_filtered_1st.copy())
     res.append(edge_minus_1st.copy())                                 
-    if output_dir:
+    if output_dir and save_dist:
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_edgeMinus_1st.jpg'), edge_minus_1st)
     mask_name.append('edgeMinus_1st')   
     
     # if debug:
     #     img_filepath = 'D:\\test\\rail_road_detection\\Canny-Python\\outs2\\rail_05_edgeFiltered_1st.jpg'
     #     edge_filtered_1st = cv2.imread(img_filepath, 0)
-    # edge_filtered_2nd = delete_free_form_curve(edge_filtered_1st.copy(), sobel_theta.copy(), 10, 70)
-    edge_filtered_2nd = delete_free_form_curve_by_entropy(edge_filtered_1st.copy(), sobel_theta)
+    edge_filtered_2nd, func_name = delete_free_form_curve_by_std(edge_filtered_1st.copy(), sobel_theta.copy(), 10, 70)
+    # edge_filtered_2nd, func_name = delete_free_form_curve_by_entropy(edge_filtered_1st.copy(), sobel_theta, entropy_thres)
+    # res.append(put_text_on_img(edge_filtered_2nd.copy(), func_name))                                 
     res.append(edge_filtered_2nd.copy())                                 
-    if output_dir:
+    if output_dir and save_dist:
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_edgeFiltered_2nd.jpg'), edge_filtered_2nd)
     mask_name.append('edgeFiltered_2nd')   
 
     edge_minus_2nd = np.subtract(edge_filtered_1st.copy(), edge_filtered_2nd.copy())
     res.append(edge_minus_2nd.copy())                                 
-    if output_dir:
+    if output_dir and save_dist:
         imageio.imwrite(os.path.join(output_dir, f'{img_name_prefix}_edgeMinus_2nd.jpg'), edge_minus_2nd)
     mask_name.append('edgeMinus_2nd')   
 
-    out_img_filepath = os.path.join(output_dir, img_name)
-    plot_and_save_fun(res, mask_name, out_img_filepath)
+    current_time = strftime("%Y-%m-%d-%H-%M-%S", gmtime())
+    out_img_filepath = os.path.join(output_dir, f'{img_name_prefix}_{current_time}.jpg')
+    # plot_and_save_func(res, mask_name, out_img_filepath, plot_text)
+
+    # plot_text = f'sigma: {sigma}; std_thres: {angle_std_thres}; entropy_thres: {entropy_thres}'
+    config_log = []
+    config_log.append(f'sigma: {sigma}')
+    config_log.append(f'angle_std_thres: {angle_std_thres}')
+    config_log.append(f'entropy_thres: {entropy_thres}')
+    config_log.append(f'func_name: {func_name}')
+    config_file = os.path.join(output_dir, f'{img_name_prefix}_{current_time}.txt')
+    fwrite(config_file, config_log)
+    plot_and_save_func(res, mask_name, out_img_filepath)
+
+    # plot_and_save_func(res, mask_name, out_img_filepath, plot_text)
+
             
 
 
@@ -533,6 +626,41 @@ def main(args):
 #     else:
 #         binary_search(Q, lists, (L+R)//2, L)
 
+def test():
+    def custom_box_style(x0, y0, width, height, mutation_size):
+        """
+        Given the location and size of the box, return the path of the box around
+        it.
+
+        Rotation is automatically taken care of.
+
+        Parameters
+        ----------
+        x0, y0, width, height : float
+            Box location and size.
+        mutation_size : float
+            Mutation reference scale, typically the text font size.
+        """
+        # padding
+        mypad = 0.3
+        pad = mutation_size * mypad
+        # width and height with padding added.
+        width = width + 2 * pad
+        height = height + 2 * pad
+        # boundary of the padded box
+        x0, y0 = x0 - pad, y0 - pad
+        x1, y1 = x0 + width, y0 + height
+        # return the new path
+        return Path([(x0, y0),
+                     (x1, y0), (x1, y1), (x0, y1),
+                     (x0-pad, (y0+y1)/2), (x0, y0),
+                     (x0, y0)],
+                    closed=True)
+
+
+    fig, ax = plt.subplots(figsize=(3, 3))
+    ax.text(0.5, 0.5, "Test", size=30, va="center", ha="center", rotation=30,
+            bbox=dict(boxstyle=custom_box_style, alpha=0.2))
 
 if __name__ == '__main__':
 
@@ -547,6 +675,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(args)
+    # test()
     # open_alg_fun()
 
     # cal_Pi()
